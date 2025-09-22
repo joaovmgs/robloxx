@@ -86,7 +86,7 @@ local function ensureGhost(): BasePart
     return p
 end
 
-local curIx, curIz: number?, number?
+local curIx, curIz = nil, nil
 
 local function setGhostVisual(ok: boolean)
     if not state.ghost then return end
@@ -147,4 +147,3 @@ function HoePreview.tryPlace()
 end
 
 return HoePreview
-

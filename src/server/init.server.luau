@@ -145,143 +145,6 @@ local function inBox(cf: CFrame, size: Vector3, worldPos: Vector3, margin: numbe
     return math.abs(lp.X) <= size.X/2 + m and math.abs(lp.Z) <= size.Z/2 + m
 end
 
--- Hoe handler
-HoeRequest.OnServerEvent:Connect(function(player: Player, cellX: number, cellZ: number)
-    local plot = getPlayerPlot(player)
-    if not plot then return end
-    if cellX < 1 or cellX > GRID_SIZE or cellZ < 1 or cellZ > GRID_SIZE then
-        HoeFeedback:FireClient(player, "Invalid", "OutOfBounds")
-        return
-    end
-    local baseOffset, ground = getPlotBaseAndGround(plot)
-    if not baseOffset then return end
-    local center = baseOffset + Vector3.new((cellX-0.5)*CELL_SIZE, 0, (cellZ-0.5)*CELL_SIZE)
-    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp or (hrp.Position - center).Magnitude > 12 then
-        HoeFeedback:FireClient(player, "Invalid", "TooFar")
-        return
-    end
-    -- Build exclusion boxes
-    local excludeBoxes = {}
-    local function addBoxFromModel(m: Model, margin: number?)
-        local cf, size = m:GetBoundingBox()
-        table.insert(excludeBoxes, { cf = cf, size = size, m = margin or 0 })
-    end
-    local function addBoxFromPart(p: BasePart, margin: number?)
-        table.insert(excludeBoxes, { cf = p.CFrame, size = p.Size, m = margin or 0 })
-    end
-    local house = plot:FindFirstChild("House", true)
-    if house and house:IsA("Model") then addBoxFromModel(house, 1.0) end
-    for _, inst in ipairs(plot:GetDescendants()) do
-        if inst:IsA("BasePart") and (inst.Name == "NoGenerate" or inst.Name == "NoTreesBox" or inst.Name == "TreeBlocker" or inst.Name == "NoSpawnBox") then
-            addBoxFromPart(inst, 0.5)
-        end
-    end
-    local gen = plot:FindFirstChild("Generated")
-    if gen then
-        local function addBoxFromFolder(folderName: string)
-            local f = gen:FindFirstChild(folderName)
-            if not f then return end
-            for _, child in ipairs(f:GetChildren()) do
-                if child:IsA("Model") then
-                    local cf2, size2 = child:GetBoundingBox()
-                    table.insert(excludeBoxes, { cf = cf2, size = size2, m = 0.2 })
-                elseif child:IsA("BasePart") then
-                    table.insert(excludeBoxes, { cf = child.CFrame, size = child.Size, m = 0.2 })
-                end
-            end
-        end
-        addBoxFromFolder("Trees")
-        addBoxFromFolder("Rocks")
-    end
-    for _, b in ipairs(excludeBoxes) do
-        if (function(cf, size, worldPos, margin)
-            local lp = cf:PointToObjectSpace(worldPos)
-            local m = margin or 0
-            return math.abs(lp.X) <= size.X/2 + m and math.abs(lp.Z) <= size.Z/2 + m
-        end)(b.cf, b.size, center, b.m) then
-            HoeFeedback:FireClient(player, "Invalid", "Blocked")
-            return
-        end
---[[ HoeRequest handler moved to HoeService: disabled
-    end
-    -- Prevent duplicate tilling on same tile (reserve)
-    local seed = TerrainHandler.getSeedForPlayer(player.UserId, player.Name)
-    hoePending[seed] = hoePending[seed] or {}
-    local key = string.format("%d,%d", cellX, cellZ)
-    local soilFolderExisting = plot:FindFirstChild("Soil")
-    if (soilFolderExisting and soilFolderExisting:FindFirstChild("Soil_"..key)) or hoePending[seed][key] then
-        HoeFeedback:FireClient(player, "Invalid", "Already")
-        return
-    end
-    hoePending[seed][key] = true
-
-    -- Duration + cancel-on-move
-    local duration = Tools.getActionTime("Hoe", 1)
-    HoeFeedback:FireClient(player, "ActionStarted", duration)
-    local startPos = hrp.Position
-    local MAX_RANGE = 16
-    local MOVE_CANCEL = 5
-    local startTime = os.clock()
-    task.spawn(function()
-        local canceled = false
-        while os.clock() - startTime < duration do
-            task.wait(0.05)
-            local c = player.Character
-            local r = c and c:FindFirstChild("HumanoidRootPart")
-            if not r then canceled = true break end
-            if (r.Position - center).Magnitude > MAX_RANGE or (r.Position - startPos).Magnitude > MOVE_CANCEL then
-                canceled = true
-                break
-            end
-        end
-        if canceled then
-            HoeFeedback:FireClient(player, "Invalid", "Moved")
-            if hoePending[seed] then hoePending[seed][key] = nil end
-            return
-        end
-        -- Place soil
-        local soilFolder = plot:FindFirstChild("Soil")
-        if not soilFolder then soilFolder = Instance.new("Folder"); soilFolder.Name = "Soil"; soilFolder.Parent = plot end
-        local name = string.format("Soil_%d,%d", cellX, cellZ)
-        if soilFolder:FindFirstChild(name) then
-            HoeFeedback:FireClient(player, "Invalid", "Already")
-            if hoePending[seed] then hoePending[seed][key] = nil end
-            return
-        end
-        local groundY = (ground and ground.Position.Y) or 0
-        local dirtTemplate = game:GetService("ServerStorage"):FindFirstChild("Dirt")
-        if dirtTemplate then
-            local inst = dirtTemplate:Clone(); inst.Name = name
-            if inst:IsA("Model") then
-                if not inst.PrimaryPart then inst.PrimaryPart = inst:FindFirstChildWhichIsA("BasePart", true) end
-                local cf3, size3 = inst:GetBoundingBox()
-                local bottomY = cf3.Position.Y - size3.Y/2
-                local deltaY = groundY - bottomY + 0.01
-                local newPos = Vector3.new(center.X, cf3.Position.Y + deltaY, center.Z)
-                inst:PivotTo(CFrame.new(newPos))
-                inst.Parent = soilFolder
-            elseif inst:IsA("BasePart") then
-                inst.Anchored = true
-                inst.Position = Vector3.new(center.X, groundY + inst.Size.Y/2 + 0.01, center.Z)
-                inst.Parent = soilFolder
-            else
-                inst.Parent = soilFolder
-            end
-        else
-            local soil = Instance.new("Part")
-            soil.Name = name
-            soil.Anchored = true
-            soil.Material = Enum.Material.Ground
-            soil.Color = Color3.fromRGB(125, 86, 62)
-            soil.Size = Vector3.new(CELL_SIZE, 0.5, CELL_SIZE)
-            soil.Position = Vector3.new(center.X, groundY + 0.25, center.Z)
-            soil.Parent = soilFolder
-        end
-        HoeFeedback:FireClient(player, "Placed", cellX, cellZ)
-        if hoePending[seed] then hoePending[seed][key] = nil end
-    end)
-end)
 
 
 -- Validate if instance is player's own tree and return the model to remove
@@ -395,7 +258,6 @@ ChopRequest.OnServerEvent:Connect(function(player: Player, toolId: string, targe
             ChopFeedback:FireClient(player, "ActionCanceled", "Moved")
             choppingState[player.UserId] = nil
             return
-]] -- end moved handler
         end
         -- success, remove resource
         if resource and (resource :: any).Parent then
@@ -406,6 +268,5 @@ ChopRequest.OnServerEvent:Connect(function(player: Player, toolId: string, targe
         choppingState[player.UserId] = nil
     end)
 end)
-
 
 
