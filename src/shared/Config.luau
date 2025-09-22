@@ -19,4 +19,9 @@ Config.PreviewTransparencyOK = 0.4
 Config.PreviewTransparencyBad = 0.7
 Config.PreviewYOffset = 0.2 -- lift ghost a bit for visibility
 
+-- Optional Studio-authored ghost asset (ReplicatedStorage)
+Config.GhostFolder = "Assets" -- folder under ReplicatedStorage (optional)
+Config.GhostModelName = "DirtGhost" -- Model or Part to use as ghost
+Config.GhostUseHighlight = true -- add a Highlight outline for visibility
+
 return Config

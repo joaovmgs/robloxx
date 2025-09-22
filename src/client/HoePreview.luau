@@ -70,28 +70,66 @@ local function getBaseOffsetAndGround(plot: Model): (Vector3, BasePart?)
     return baseOffset, nil
 end
 
-local function ensureGhost(): BasePart
+local ghostHighlight: Highlight? = nil
+
+local function ensureGhost(): Instance
     if state.ghost and state.ghost.Parent then return state.ghost end
-    local p = Instance.new("Part")
-    p.Name = "HoeGhost"
-    p.Anchored = true
-    p.CanCollide = false
-    p.CanQuery = false
-    p.Transparency = Config.PreviewTransparencyOK
-    p.Color = Config.PreviewGoodColor
-    p.Material = Enum.Material.ForceField
-    p.Size = Vector3.new(state.gridCellSize, math.max(0.2, math.min(1, state.tileHeight)), state.gridCellSize)
-    p.Parent = workspace
-    state.ghost = p
-    return p
+    -- Try Studio-authored ghost under ReplicatedStorage
+    local assets = ReplicatedStorage:FindFirstChild(Config.GhostFolder)
+    local template = (assets and assets:FindFirstChild(Config.GhostModelName)) or ReplicatedStorage:FindFirstChild(Config.GhostModelName)
+    if template then
+        local g = template:Clone()
+        g.Name = "HoeGhost"
+        g.Parent = workspace
+        -- Ensure non-colliding and anchored for all parts
+        for _, d in ipairs(g:GetDescendants()) do
+            if d:IsA("BasePart") then
+                d.Anchored = true
+                d.CanCollide = false
+                d.CanQuery = false
+            end
+        end
+        state.ghost = g :: any
+    else
+        -- Fallback primitive part
+        local p = Instance.new("Part")
+        p.Name = "HoeGhost"
+        p.Anchored = true
+        p.CanCollide = false
+        p.CanQuery = false
+        p.Transparency = Config.PreviewTransparencyOK
+        p.Color = Config.PreviewGoodColor
+        p.Material = Enum.Material.ForceField
+        p.Size = Vector3.new(state.gridCellSize, math.max(0.2, math.min(1, state.tileHeight)), state.gridCellSize)
+        p.Parent = workspace
+        state.ghost = p
+    end
+    if Config.GhostUseHighlight then
+        local h = Instance.new("Highlight")
+        h.Name = "HoeGhostHighlight"
+        h.Adornee = (state.ghost :: any)
+        h.FillTransparency = 1
+        h.OutlineColor = Config.PreviewGoodColor
+        h.OutlineTransparency = 0
+        h.Parent = workspace
+        ghostHighlight = h
+    end
+    return state.ghost :: any
 end
 
 local curIx, curIz = nil, nil
 
 local function setGhostVisual(ok: boolean)
-    if not state.ghost then return end
-    state.ghost.Color = ok and Config.PreviewGoodColor or Config.PreviewBadColor
-    state.ghost.Transparency = ok and Config.PreviewTransparencyOK or Config.PreviewTransparencyBad
+    if ghostHighlight then
+        ghostHighlight.OutlineColor = ok and Config.PreviewGoodColor or Config.PreviewBadColor
+        ghostHighlight.Enabled = true
+    end
+    local g = state.ghost
+    if not g then return end
+    if g:IsA("BasePart") then
+        g.Color = ok and Config.PreviewGoodColor or Config.PreviewBadColor
+        g.Transparency = ok and Config.PreviewTransparencyOK or Config.PreviewTransparencyBad
+    end
 end
 
 local stepConn: RBXScriptConnection? = nil
@@ -160,9 +198,21 @@ function HoePreview.enable()
             return
         end
         local groundY = (ground and ground.Position.Y) or 0
-        local center = Vector3.new(snapped.X, groundY + state.tileHeight/2 + Config.PreviewYOffset, snapped.Z)
-        ghost.Size = Vector3.new(state.gridCellSize, math.max(0.2, math.min(1, state.tileHeight)), state.gridCellSize)
-        ghost.CFrame = CFrame.new(center)
+        local centerY = groundY + Config.PreviewYOffset
+        do
+            -- place centerY to sit ghost on ground considering its height
+            if ghost:IsA("Model") then
+                local _, size = ghost:GetBoundingBox()
+                centerY = groundY + size.Y/2 + Config.PreviewYOffset
+                ghost:PivotTo(CFrame.new(Vector3.new(snapped.X, centerY, snapped.Z)))
+            elseif ghost:IsA("BasePart") then
+                local partH = ghost.Size.Y
+                centerY = groundY + partH/2 + Config.PreviewYOffset
+                ghost.CFrame = CFrame.new(Vector3.new(snapped.X, centerY, snapped.Z))
+                -- keep fallback ghost sized to cell
+                ghost.Size = Vector3.new(state.gridCellSize, math.max(0.2, math.min(1, state.tileHeight)), state.gridCellSize)
+            end
+        end
         curIx, curIz = ix, iz
         -- simplistic occupancy check by name
         local soil = plot:FindFirstChild("Soil") or plot:FindFirstChild("Tilled")
