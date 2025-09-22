@@ -262,25 +262,7 @@ ChopFeedback.OnClientEvent:Connect(function(kind, arg1, arg2)
     end
 end)
 
--- Hoe feedback
-local HoeFeedback: RemoteEvent = Remotes.get("HoeFeedback")
-HoeFeedback.OnClientEvent:Connect(function(kind, a, b)
-    if kind == "Placed" then
-        if hoeGhost then
-            hoeGhost.Color = Color3.fromRGB(80, 220, 90)
-            task.delay(0.15, function()
-                if hoeGhost then hoeGhost.Color = Color3.fromRGB(60, 180, 75) end
-            end)
-        end
-    elseif kind == "Invalid" then
-        if hoeGhost then
-            hoeGhost.Color = Color3.fromRGB(220, 60, 60)
-            task.delay(0.15, function()
-                if hoeGhost then hoeGhost.Color = Color3.fromRGB(60, 180, 75) end
-            end)
-        end
-    end
-end)
+-- Hoe feedback visuals are handled by HoePreview; no-op here.
 
 
 -- Hoe progress handling
@@ -294,11 +276,5 @@ HoeFeedback2.OnClientEvent:Connect(function(kind, a, b)
         stopProgress()
     elseif kind == "Invalid" then
         stopProgress()
-        if hoeGhost then
-            hoeGhost.Color = Color3.fromRGB(220, 60, 60)
-            task.delay(0.15, function()
-                if hoeGhost then hoeGhost.Color = Color3.fromRGB(60, 180, 75) end
-            end)
-        end
     end
 end)
