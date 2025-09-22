@@ -7,6 +7,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Grid = require(Shared:WaitForChild("Grid"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local Tools = require(Shared:WaitForChild("Tools"))
 
 export type PlotCtx = {
     model: Model,
@@ -148,8 +149,8 @@ function HoeService.start()
         end
         pending[seed][key] = true
 
-        -- Simulate action progress on server; let client show progress too
-        local duration = 1.2 -- consider using Tools.getActionTime("Hoe", level)
+        -- Simulate action progress on server; use Tools to compute duration
+        local duration = Tools.getActionTime("Hoe", 1)
         HoeFeedback:FireClient(player, "ActionStarted", duration)
 
         local startPos = hrp.Position
@@ -187,4 +188,3 @@ function HoeService.start()
 end
 
 return HoeService
-
