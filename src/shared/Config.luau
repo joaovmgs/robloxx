@@ -17,6 +17,6 @@ Config.PreviewGoodColor = Color3.fromRGB(60, 180, 75)
 Config.PreviewBadColor = Color3.fromRGB(200, 60, 60)
 Config.PreviewTransparencyOK = 0.4
 Config.PreviewTransparencyBad = 0.7
+Config.PreviewYOffset = 0.2 -- lift ghost a bit for visibility
 
 return Config
-

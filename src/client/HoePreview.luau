@@ -96,6 +96,50 @@ end
 
 local stepConn: RBXScriptConnection? = nil
 
+local function buildExcludeBoxes(plot: Model)
+    local boxes = {}
+    local function addBoxFromModel(m: Model, margin: number?)
+        local cf, size = m:GetBoundingBox()
+        table.insert(boxes, { cf = cf, size = size, m = margin or 0 })
+    end
+    local function addBoxFromPart(p: BasePart, margin: number?)
+        table.insert(boxes, { cf = p.CFrame, size = p.Size, m = margin or 0 })
+    end
+    local house = plot:FindFirstChild("House", true)
+    if house and house:IsA("Model") then addBoxFromModel(house, 1.0) end
+    for _, inst in ipairs(plot:GetDescendants()) do
+        if inst:IsA("BasePart") then
+            local n = inst.Name
+            if n == "NoGenerate" or n == "NoTreesBox" or n == "TreeBlocker" or n == "NoSpawnBox" or n == "NoTilling" or n == "NoHoe" then
+                addBoxFromPart(inst, 0.5)
+            end
+        end
+    end
+    local gen = plot:FindFirstChild("Generated")
+    local function addFromFolder(name: string)
+        if not gen then return end
+        local f = gen:FindFirstChild(name)
+        if not f then return end
+        for _, child in ipairs(f:GetChildren()) do
+            if child:IsA("Model") then
+                local cf, size = child:GetBoundingBox()
+                table.insert(boxes, { cf = cf, size = size, m = 0.2 })
+            elseif child:IsA("BasePart") then
+                table.insert(boxes, { cf = child.CFrame, size = child.Size, m = 0.2 })
+            end
+        end
+    end
+    addFromFolder("Trees")
+    addFromFolder("Rocks")
+    return boxes
+end
+
+local function insideXZ(cf: CFrame, size: Vector3, worldPos: Vector3, margin: number?): boolean
+    local lp = cf:PointToObjectSpace(worldPos)
+    local m = margin or 0
+    return math.abs(lp.X) <= size.X/2 + m and math.abs(lp.Z) <= size.Z/2 + m
+end
+
 function HoePreview.enable()
     if state.enabled then return end
     state.enabled = true
@@ -116,7 +160,7 @@ function HoePreview.enable()
             return
         end
         local groundY = (ground and ground.Position.Y) or 0
-        local center = Vector3.new(snapped.X, groundY + state.tileHeight/2, snapped.Z)
+        local center = Vector3.new(snapped.X, groundY + state.tileHeight/2 + Config.PreviewYOffset, snapped.Z)
         ghost.Size = Vector3.new(state.gridCellSize, math.max(0.2, math.min(1, state.tileHeight)), state.gridCellSize)
         ghost.CFrame = CFrame.new(center)
         curIx, curIz = ix, iz
@@ -125,7 +169,18 @@ function HoePreview.enable()
         local occupied = soil and soil:FindFirstChild(string.format("Soil_%d,%d", ix, iz)) ~= nil
         local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
         local near = hrp and ((hrp.Position - center).Magnitude <= Config.ToolMaxRange) or false
-        setGhostVisual(near and not occupied)
+        -- block under trees/rocks or designer blockers (client approximation)
+        local blocked = false
+        do
+            local boxes = buildExcludeBoxes(plot)
+            for _, b in ipairs(boxes) do
+                if insideXZ(b.cf, b.size, center, b.m) then
+                    blocked = true
+                    break
+                end
+            end
+        end
+        setGhostVisual(near and not occupied and not blocked)
     end)
 end
 
