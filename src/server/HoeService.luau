@@ -112,6 +112,57 @@ local function isCellOccupied(plot: Model, ix: number, iz: number): boolean
     return false
 end
 
+local function buildExcludeBoxes(plot: Model)
+    local boxes = {}
+    local function addBoxFromModel(m: Model, margin: number?)
+        local cf, size = m:GetBoundingBox()
+        table.insert(boxes, { cf = cf, size = size, m = margin or 0 })
+    end
+    local function addBoxFromPart(p: BasePart, margin: number?)
+        table.insert(boxes, { cf = p.CFrame, size = p.Size, m = margin or 0 })
+    end
+
+    -- House or large structures
+    local house = plot:FindFirstChild("House", true)
+    if house and house:IsA("Model") then addBoxFromModel(house, 1.0) end
+
+    -- Designer blockers
+    for _, inst in ipairs(plot:GetDescendants()) do
+        if inst:IsA("BasePart") then
+            local n = inst.Name
+            if n == "NoGenerate" or n == "NoTreesBox" or n == "TreeBlocker" or n == "NoSpawnBox" or n == "NoTilling" or n == "NoHoe" then
+                addBoxFromPart(inst, 0.5)
+            end
+        end
+    end
+
+    -- Generated content: Trees and Rocks
+    local gen = plot:FindFirstChild("Generated")
+    local function addFromFolder(name: string)
+        if not gen then return end
+        local f = gen:FindFirstChild(name)
+        if not f then return end
+        for _, child in ipairs(f:GetChildren()) do
+            if child:IsA("Model") then
+                local cf, size = child:GetBoundingBox()
+                table.insert(boxes, { cf = cf, size = size, m = 0.2 })
+            elseif child:IsA("BasePart") then
+                table.insert(boxes, { cf = child.CFrame, size = child.Size, m = 0.2 })
+            end
+        end
+    end
+    addFromFolder("Trees")
+    addFromFolder("Rocks")
+
+    return boxes
+end
+
+local function insideXZ(cf: CFrame, size: Vector3, worldPos: Vector3, margin: number?): boolean
+    local lp = cf:PointToObjectSpace(worldPos)
+    local m = margin or 0
+    return math.abs(lp.X) <= size.X/2 + m and math.abs(lp.Z) <= size.Z/2 + m
+end
+
 function HoeService.start()
     HoeRequest.OnServerEvent:Connect(function(player: Player, worldPos: Vector3)
         local plot = getPlayerPlot(player)
@@ -138,6 +189,17 @@ function HoeService.start()
         if not hrp or (hrp.Position - center).Magnitude > Config.ToolMaxRange then
             HoeFeedback:FireClient(player, "Invalid", "TooFar")
             return
+        end
+
+        -- Block tilling under trees, rocks, or designer blockers
+        do
+            local boxes = buildExcludeBoxes(plot)
+            for _, b in ipairs(boxes) do
+                if insideXZ(b.cf, b.size, center, b.m) then
+                    HoeFeedback:FireClient(player, "Invalid", "Blocked")
+                    return
+                end
+            end
         end
 
         local seed = player.UserId -- acceptable for reservation; can be improved with Terrain seed
