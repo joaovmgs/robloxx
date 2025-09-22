@@ -17,11 +17,47 @@ local HoePreview = {}
 
 local state = {
     enabled = false,
-    ghost = nil :: BasePart?,
+    ghost = nil :: Instance?,
     gridCellSize = Config.CellSize,
     gridSize = Config.GridSize,
     tileHeight = Config.TileThickness,
+    ghostParts = {} :: { BasePart },
 }
+
+local function distanceSquared(a: Vector3, b: Vector3): number
+    local dx = a.X - b.X
+    local dy = a.Y - b.Y
+    local dz = a.Z - b.Z
+    return dx * dx + dy * dy + dz * dz
+end
+
+local function refreshGhostParts()
+    local ghost = state.ghost
+    local parts: { BasePart } = {}
+    if not ghost then
+        state.ghostParts = parts
+        return
+    end
+    if ghost:IsA("Model") then
+        for _, inst in ipairs(ghost:GetDescendants()) do
+            if inst:IsA("BasePart") then
+                inst.Anchored = true
+                inst.CanCollide = false
+                inst.CanQuery = false
+                inst.CanTouch = false
+                table.insert(parts, inst)
+            end
+        end
+    elseif ghost:IsA("BasePart") then
+        local p = ghost :: BasePart
+        p.Anchored = true
+        p.CanCollide = false
+        p.CanQuery = false
+        p.CanTouch = false
+        table.insert(parts, p)
+    end
+    state.ghostParts = parts
+end
 
 local function readSpecs()
     local specs = ReplicatedStorage:FindFirstChild("Specs")
@@ -29,9 +65,15 @@ local function readSpecs()
     local gx = specs:FindFirstChild("GridCellSize")
     local gz = specs:FindFirstChild("GridSize")
     local th = specs:FindFirstChild("DirtHeight")
-    if gx and gx:IsA("NumberValue") then state.gridCellSize = gx.Value end
-    if gz and gz:IsA("NumberValue") then state.gridSize = gz.Value end
-    if th and th:IsA("NumberValue") then state.tileHeight = th.Value end
+    if gx and gx:IsA("NumberValue") and gx.Value > 0 then
+        state.gridCellSize = gx.Value
+    end
+    if gz and gz:IsA("NumberValue") and gz.Value > 0 then
+        state.gridSize = gz.Value
+    end
+    if th and th:IsA("NumberValue") and th.Value > 0 then
+        state.tileHeight = th.Value
+    end
 end
 
 local function getPlayerPlot(): Model?
@@ -40,15 +82,18 @@ local function getPlayerPlot(): Model?
     local char = player.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local best: Model? = nil
-    local bestDist = math.huge
+    local bestDistSq = math.huge
     for _, folder in ipairs(terrains:GetChildren()) do
         local plot = folder:FindFirstChild("Plot")
         if plot and plot:IsA("Model") then
             local ground = plot:FindFirstChild("Ground", true)
             local pos = ground and ground:IsA("BasePart") and ground.Position or plot:GetBoundingBox().Position
             if hrp then
-                local d = (hrp.Position - pos).Magnitude
-                if d < bestDist then bestDist = d; best = plot end
+                local distSq = distanceSquared(hrp.Position, pos)
+                if distSq < bestDistSq then
+                    bestDistSq = distSq
+                    best = plot
+                end
             else
                 best = plot
             end
@@ -72,8 +117,69 @@ end
 
 local ghostHighlight: Highlight? = nil
 
+local function setGhostVisual(ok: boolean)
+    local previewColor = ok and Config.PreviewGoodColor or Config.PreviewBadColor
+    local goodTransparency = math.clamp(Config.PreviewTransparencyOK, 0, 1)
+    local partTransparency = ok and goodTransparency or 0.05
+    local highlightFill = ok and 0.55 or 0
+    local highlightOutline = ok and 0.1 or 0
+    if ghostHighlight then
+        ghostHighlight.FillColor = previewColor
+        ghostHighlight.OutlineColor = previewColor
+        ghostHighlight.FillTransparency = highlightFill
+        ghostHighlight.OutlineTransparency = highlightOutline
+        ghostHighlight.Enabled = true
+    end
+    for _, part in ipairs(state.ghostParts) do
+        part.Color = previewColor
+        part.Transparency = partTransparency
+        part.Material = Enum.Material.Neon
+        part.Reflectance = 0
+        part.CastShadow = false
+        part.CanCollide = false
+        part.CanQuery = false
+        part.CanTouch = false
+    end
+end
+
+local function ensureHighlight()
+    if not Config.GhostUseHighlight then
+        if ghostHighlight then
+            ghostHighlight:Destroy()
+            ghostHighlight = nil
+        end
+        return
+    end
+    local ghost = state.ghost
+    if not ghost then return end
+    if ghostHighlight and ghostHighlight.Adornee == ghost then
+        return
+    end
+    if ghostHighlight then
+        ghostHighlight:Destroy()
+        ghostHighlight = nil
+    end
+    local h = Instance.new("Highlight")
+    h.Name = "HoeGhostHighlight"
+    h.Adornee = ghost
+    h.FillColor = Config.PreviewGoodColor
+    h.FillTransparency = 0.35
+    h.OutlineColor = Config.PreviewGoodColor
+    h.OutlineTransparency = 0.05
+    h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    h.Parent = workspace
+    ghostHighlight = h
+end
+
 local function ensureGhost(): Instance
-    if state.ghost and state.ghost.Parent then return state.ghost end
+    if state.ghost and state.ghost.Parent then
+        if #state.ghostParts == 0 then
+            refreshGhostParts()
+        end
+        ensureHighlight()
+        setGhostVisual(true)
+        return state.ghost
+    end
     -- Try Studio-authored ghost under ReplicatedStorage
     local assets = ReplicatedStorage:FindFirstChild(Config.GhostFolder)
     local template = (assets and assets:FindFirstChild(Config.GhostModelName)) or ReplicatedStorage:FindFirstChild(Config.GhostModelName)
@@ -81,14 +187,6 @@ local function ensureGhost(): Instance
         local g = template:Clone()
         g.Name = "HoeGhost"
         g.Parent = workspace
-        -- Ensure non-colliding and anchored for all parts
-        for _, d in ipairs(g:GetDescendants()) do
-            if d:IsA("BasePart") then
-                d.Anchored = true
-                d.CanCollide = false
-                d.CanQuery = false
-            end
-        end
         state.ghost = g :: any
     else
         -- Fallback primitive part
@@ -104,33 +202,13 @@ local function ensureGhost(): Instance
         p.Parent = workspace
         state.ghost = p
     end
-    if Config.GhostUseHighlight then
-        local h = Instance.new("Highlight")
-        h.Name = "HoeGhostHighlight"
-        h.Adornee = (state.ghost :: any)
-        h.FillTransparency = 1
-        h.OutlineColor = Config.PreviewGoodColor
-        h.OutlineTransparency = 0
-        h.Parent = workspace
-        ghostHighlight = h
-    end
+    refreshGhostParts()
+    ensureHighlight()
+    setGhostVisual(true)
     return state.ghost :: any
 end
 
 local curIx, curIz = nil, nil
-
-local function setGhostVisual(ok: boolean)
-    if ghostHighlight then
-        ghostHighlight.OutlineColor = ok and Config.PreviewGoodColor or Config.PreviewBadColor
-        ghostHighlight.Enabled = true
-    end
-    local g = state.ghost
-    if not g then return end
-    if g:IsA("BasePart") then
-        g.Color = ok and Config.PreviewGoodColor or Config.PreviewBadColor
-        g.Transparency = ok and Config.PreviewTransparencyOK or Config.PreviewTransparencyBad
-    end
-end
 
 local stepConn: RBXScriptConnection? = nil
 
@@ -192,6 +270,11 @@ function HoePreview.enable()
         if not worldPos then return end
         -- snap on XZ, use mouse Y as hint, server will raycast
         local snapped, ix, iz = Grid.snap(worldPos, baseOffset, state.gridCellSize, worldPos.Y)
+        if typeof(snapped) ~= "Vector3" or typeof(ix) ~= "number" or typeof(iz) ~= "number" then
+            setGhostVisual(false)
+            curIx, curIz = nil, nil
+            return
+        end
         if ix < 1 or ix > state.gridSize or iz < 1 or iz > state.gridSize then
             setGhostVisual(false)
             curIx, curIz = nil, nil
@@ -213,12 +296,23 @@ function HoePreview.enable()
                 ghost.Size = Vector3.new(state.gridCellSize, math.max(0.2, math.min(1, state.tileHeight)), state.gridCellSize)
             end
         end
+        local center = Vector3.new(snapped.X, centerY, snapped.Z)
         curIx, curIz = ix, iz
-        -- simplistic occupancy check by name
+
+        -- occupancy check by cell key (supports both "x,y" and "Soil_x,y")
         local soil = plot:FindFirstChild("Soil") or plot:FindFirstChild("Tilled")
-        local occupied = soil and soil:FindFirstChild(string.format("Soil_%d,%d", ix, iz)) ~= nil
+        local key = Grid.key(ix, iz)
+        local occupied = false
+        if soil then
+            occupied = soil:FindFirstChild("Soil_" .. key) ~= nil or soil:FindFirstChild(key) ~= nil
+        end
         local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-        local near = hrp and ((hrp.Position - center).Magnitude <= Config.ToolMaxRange) or false
+        -- Use snapped cell center for distance checks to avoid nils
+        local near = false
+        if hrp then
+            local distSq = distanceSquared(hrp.Position, center)
+            near = distSq <= (Config.ToolMaxRange * Config.ToolMaxRange)
+        end
         -- block under trees/rocks or designer blockers (client approximation)
         local blocked = false
         do
@@ -238,8 +332,13 @@ function HoePreview.disable()
     state.enabled = false
     if stepConn then stepConn:Disconnect() end
     stepConn = nil
+    if ghostHighlight then
+        ghostHighlight:Destroy()
+        ghostHighlight = nil
+    end
     if state.ghost then state.ghost:Destroy() end
     state.ghost = nil
+    state.ghostParts = {}
     curIx, curIz = nil, nil
 end
 

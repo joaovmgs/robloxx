@@ -1,0 +1,123 @@
+Instruções a serem seguidas, quando for integrando as coisas vai adicionando consoles.logs para debug, se precisar que eu adicione alguma estrutura com nome especifico, mande o local e o nome que a estrutura deve ter, é sempre siga a melhor estrutura de pastas para ficar bem organizado.
+
+Quando o jogador entra no jogo, o sistema cria automaticamente uma cópia do terreno padrão só para ele. Esse terreno fica separado dentro do servidor, de forma que cada jogador tenha a sua própria área exclusiva para explorar e modificar.
+
+Ao carregar o terreno, o sistema verifica se já existem dados salvos desse jogador no DataStore:
+
+Se for a primeira vez que o jogador entra:
+
+O sistema vai rodar a geração procedural do terreno.
+
+Essa geração cria árvores, pedras, arbustos e áreas de água de forma aleatória, mas única para cada jogador (usando o ID do jogador como base).
+
+O resultado é um terreno com recursos espalhados, pronto para ser limpo e transformado, parecido com o estilo de Stardew Valley.
+
+Depois de gerado, esse terreno inicial é salvo no DataStore, garantindo que o jogador sempre volte para o mesmo mapa no futuro.
+
+Se o jogador já tiver jogado antes:
+
+O sistema carrega os dados do DataStore.
+
+O terreno é recriado com base na geração inicial, mas as alterações feitas pelo jogador (como árvores já removidas ou áreas desbloqueadas) também são aplicadas.
+
+Assim, o jogador sempre vê o progresso que deixou na última vez que jogou.
+
+Dessa forma, cada jogador tem um terreno grande, único e persistente: sempre que entrar, vai encontrar o espaço do jeito que deixou — seja cheio de árvores e pedras na primeira vez, ou já limpo e organizado depois de várias sessões de jogo.
+
+
+
+1. Estrutura do Projeto
+
+ Criar template base do terreno (50x50, chão de grama).
+
+ Criar pasta exclusiva por jogador dentro do Workspace para armazenar o terreno instanciado.
+
+ Organizar scripts em módulos separados:
+
+TerrainHandler (gera e carrega o terreno).
+
+DataHandler (salva e lê do DataStore).
+
+InteractionHandler (remoção e upgrades).
+
+2. Definição de Dados
+
+ Definir o grid de 50x50 células como padrão do terreno.
+
+ Definir os tipos de objetos possíveis: árvore, pedra, arbusto, água, vazio.
+
+ Definir estado de cada objeto: ativo (existe), removido (limpo).
+
+ Definir estrutura no DataStore:
+
+Lista de objetos removidos (removidos).
+
+Áreas desbloqueadas (expansoes).
+
+3. Geração Inicial do Terreno
+
+ Criar algoritmo de geração procedural usando seed baseada no UserId.
+
+ Regras de spawn inicial:
+
+Árvores ~20% das células.
+
+Pedras ~10%.
+
+Arbustos ~10%.
+
+Água: áreas fixas grandes (ex.: cantos).
+
+Restante: vazio.
+
+ Garantir que só rode na primeira vez do jogador (quando não existe DataStore salvo).
+
+ Salvar o terreno inicial no DataStore.
+
+4. Carregamento do Terreno
+
+ Ao entrar no jogo:
+
+Clonar o template base para o jogador.
+
+Rodar o algoritmo de geração procedural com seed do jogador.
+
+Aplicar diferenças salvas do DataStore (removidos, expansoes).
+
+ Garantir que cada jogador só veja o próprio terreno (isolamento por pasta).
+
+5. Interação com Objetos
+
+ Criar sistema de detecção de interação (ex.: clique em árvore/pedra).
+
+ Quando objeto for removido:
+
+Alterar estado para "removido".
+
+Destruir objeto no terreno.
+
+Atualizar DataStore com a posição removida.
+
+ Garantir persistência → se o jogador sair e voltar, o objeto continua removido.
+
+6. Expansão de Terreno (Preparação)
+
+ Marcar áreas “bloqueadas” no grid (ex.: norte, sul, leste, oeste).
+
+ Criar flag de desbloqueio no DataStore (expansoes).
+
+ No carregamento, liberar áreas apenas se expansoes estiver marcado como true.
+
+ (Mesmo sem economia ainda, deixar sistema preparado).
+
+7. Otimização & Testes
+
+ Testar geração inicial em diferentes jogadores para verificar variedade.
+
+ Testar carregamento de terreno já salvo → se o progresso é mantido.
+
+ Limitar o número máximo de objetos instanciados ao mesmo tempo.
+
+ Implementar salvamento periódico (ex.: a cada 30s) + salvamento ao sair do jogo.
+
+ Testar com múltiplos jogadores no mesmo servidor → garantir que os terrenos não se misturam.

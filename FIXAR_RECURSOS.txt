@@ -1,0 +1,80 @@
+Objetivo
+- Deixar árvores, pedras e futuros recursos com posições fixas por jogador, de forma persistente (sem depender do RNG a cada sessão).
+
+Caminhos possíveis
+1) Fixos via Template (igual para todos)
+- Para um layout igual para todos os jogadores: coloque os objetos diretamente no `ServerStorage/BasePlotTemplate`.
+- Sugestão de organização dentro do Model:
+  - `House` (Model fixo da casa)
+  - `NoGenerate` / `TreeBlocker` / `NoTreesBox` / `NoSpawnBox` para bloquear o spawn procedural em áreas específicas.
+  - Pastas opcionais `StaticTrees` e `StaticRocks` contendo seus modelos prontos. Se usar isso, remova a geração procedural correspondente no código (ou coloque `NoGenerate` sobre toda a área para evitar spawns aleatórios).
+- Vantagem: simples e visual no Studio. Desvantagem: todos os jogadores terão o mesmo layout.
+
+2) Fixos via DataStore (por jogador)
+- Fluxo recomendado quando quiser “congelar” o procedural e manter fixo por jogador:
+  a) Primeira entrada do jogador:
+     - Rodar geração procedural (árvore/rocha) normalmente.
+     - Criar um “snapshot” do grid: para cada célula onde surgiu recurso, salvar `type` e a `cellKey` ("x,y").
+     - Salvar no DataStore do jogador: `objects` (o snapshot) + metadado `frozen=true`.
+  b) Entradas futuras:
+     - Carregar `objects` do DataStore e reconstruir 100% a partir dele.
+     - Nunca mais rodar procedural para esse jogador enquanto `frozen=true`.
+  c) Remoções/alterações:
+     - Ao cortar árvore/minerar rocha, marcar a célula como removida no `objects` (ou apagar a entrada).
+     - Ao arar (Dirt), adicionar a célula como `soil` no `objects`.
+     - Salvar periodicamente e ao sair.
+
+Estrutura de dados sugerida (por jogador)
+- Chave do DataStore: `seed` (ou `UserId` em live)
+- Documento:
+  {
+    objects = {
+      ["x,y"] = { t = "tree" | "rock" | "soil", v = 1 },
+      ...
+    },
+    expansions = { north=false, south=false, east=false, west=false },
+    tools = { Axe={level=1}, Pickaxe={level=1}, Hoe={level=1} },
+    frozen = true
+  }
+
+Como “congelar” o terreno (passo a passo)
+1) Modo freeze no servidor (a implementar quando for usar):
+   - Após gerar o terreno pela primeira vez, percorrer `Plot/Generated/Trees` e `Plot/Generated/Rocks` e montar `objects` com as `cellKeys` e `types`.
+   - Salvar `objects` + `frozen=true` no DataStore.
+   - Em `PlayerAdded`, se `frozen=true`, não rodar geração procedural; apenas reconstruir lendo `objects` e aplicando as regras de exclusão (House/NoGenerate etc.).
+
+Reconstrução a partir do snapshot
+- Para cada entrada em `objects`:
+  - `t="tree"`: clonar `ServerStorage.TreeModel` na célula.
+  - `t="rock"`: clonar `ServerStorage.Rock` na célula.
+  - `t="soil"`: clonar `ServerStorage.Dirt` na célula.
+- Dica: reusar helpers atuais que posicionam Tree/Rock/Dirt pelo centro da célula (usando `CELL_SIZE` e `baseOffset`).
+
+Fixos manuais no editor (opcional)
+- Se preferir “desenhar” o layout fixo por jogador no runtime e salvar:
+  - Criar um comando de debug (somente em Studio) que, ao acionar, percorre `Plot/Generated` e `Plot/Soil`, gera o snapshot `objects` e salva no DataStore.
+  - Assim, você pode ‘curar’ um terreno procedural e congelá-lo.
+
+Nomenclatura e templates
+- Modelos em `ServerStorage`:
+  - `TreeModel`: árvore clonada por célula.
+  - `Rock`: rocha clonada por célula.
+  - `Dirt`: solo arado clonável (usado pela enxada e pelo snapshot para `t="soil"`).
+- Zonas de bloqueio (no `BasePlotTemplate`):
+  - `NoGenerate` / `TreeBlocker` / `NoTreesBox` / `NoSpawnBox`: o gerador atual já respeita todas.
+  - `SpawnPoint`: cria círculo sem spawn (raio padrão ~24). Ajuste conforme desejar.
+
+Boas práticas
+- Sempre salvar/atualizar `objects` em memória e persistir com debounce (ex.: a cada 30s + ao sair).
+- Usar nomes de `Soil_x,y`, `Tree_x,y`, `Rock_x,y` para mapear célula ↔ instância.
+- Manter `CELL_SIZE` e `GRID_SIZE` centralizados para evitar divergência entre snapshot e reconstrução.
+
+Plano mínimo quando decidir ativar o “fixo por jogador”
+1) Implementar `DataHandler` com os campos `objects`/`frozen`.
+2) Adicionar modo “snapshot and freeze” ao final da primeira geração.
+3) Alterar o carregamento para reconstruir a partir de `objects` quando `frozen=true`.
+4) Atualizar `objects` em cada ação (corte/mineração/arar) e salvar periodicamente.
+
+Observação
+- Enquanto este fluxo não estiver ligado, o sistema atual continua procedural (com bloqueios pelo template). Este TXT serve como guia de implementação quando você quiser “congelar” o terreno.
+

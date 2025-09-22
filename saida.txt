@@ -1,0 +1,10 @@
+14:47:11.119  [BOOT] Server starting...  -  Servidor - Server:5
+  14:47:11.120  [BOOT] Server systems initialized (Terrain)  -  Servidor - Server:68
+  14:47:11.194  [JOIN] Player joovmgs (7663959303) joined  -  Servidor - Server:19
+  14:47:11.194  [SEED] joovmgs uid=7663959303 -> seed=7663959303  -  Servidor - Server:23
+  14:47:11.195  [TERRAIN] Generating terrain for player seed 7663959303  -  Servidor - Server:31
+  14:47:11.195  [PLOT] Creating base plot for seed 7663959303  -  Servidor - TerrainHandler:87
+  14:47:11.196  [GEN] Generating terrain with seed 7663959303  -  Servidor - TerrainHandler:107
+  14:47:11.483  [GEN] Terrain generation complete. Trees placed: 472  -  Servidor - TerrainHandler:142
+  14:47:11.483  [SPAWN] joovmgs spawn at (20100.0, 5.0, 20100.0)  -  Servidor - Server:41
+  14:47:11.758  Hello world, from client!  -  Cliente - Client:1

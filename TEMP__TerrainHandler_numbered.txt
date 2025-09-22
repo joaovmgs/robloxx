@@ -1,0 +1,195 @@
+   1 -- TerrainHandler: creates per-player plot and generates procedural contents
+   2 local TerrainHandler = {}
+   3 
+   4 export type CellType = "tree" | "rock" | "bush" | "water" | "empty"
+   5 
+   6 local CELL_SIZE = 4 -- studs per cell
+   7 local GRID_SIZE = 50 -- 50x50
+   8 local PLOT_HEIGHT = 0 -- y level for ground
+   9 local TILE_SPACING = 1000 -- distance between player plots to avoid overlap/visibility
+  10 
+  11 local ServerStorage = game:GetService("ServerStorage")
+  12 
+  13 local function cellKey(x: number, z: number): string
+  14     return tostring(x)..","..tostring(z)
+  15 end
+  16 
+  17 local function pickType(rng: Random, x: number, z: number): CellType
+  18     -- Simplificado: somente árvores (~20%) e vazio
+  19     local r = rng:NextNumber()
+  20     if r < 0.20 then
+  21         return "tree"
+  22     else
+  23         return "empty"
+  24     end
+  25 end
+  26 
+  27 local function cloneTreeModel(): Instance?
+  28     local inst = ServerStorage:FindFirstChild("TreeModel")
+  29     if inst then return inst:Clone() end
+  30     return nil
+  31 end
+  32 
+  33 local function getPlotOffsetFromSeed(seed: number): Vector3
+  34     -- Simple deterministic hash to 2D tile
+  35     -- Spread across a grid using a numeric seed to avoid collisions
+  36     local a = (seed % 31)
+  37     local b = (math.floor(seed / 31) % 31)
+  38     local x = a * TILE_SPACING
+  39     local z = b * TILE_SPACING
+  40     return Vector3.new(x, 0, z)
+  41 end
+  42 
+  43 local function createGround(parent: Instance, baseOffset: Vector3)
+  44     local size = Vector3.new(GRID_SIZE * CELL_SIZE, 1, GRID_SIZE * CELL_SIZE)
+  45     local ground: BasePart = Instance.new("Part")
+  46     ground.Name = "Ground"
+  47     ground.Anchored = true
+  48     ground.Size = size
+  49     ground.Material = Enum.Material.Grass
+  50     ground.Color = Color3.fromRGB(106, 127, 63)
+  51     ground.Parent = parent
+  52     ground.Position = baseOffset + Vector3.new(size.X/2, PLOT_HEIGHT, size.Z/2)
+  53     return ground
+  54 end
+  55 
+  56 local function createPlaceholder(name: string, color: Color3, size: Vector3, position: Vector3)
+  57     local p = Instance.new("Part")
+  58     p.Name = name
+  59     p.Anchored = true
+  60     p.Color = color
+  61     p.Size = size
+  62     p.Position = position
+  63     p.TopSurface = Enum.SurfaceType.Smooth
+  64     p.BottomSurface = Enum.SurfaceType.Smooth
+  65     return p
+  66 end
+  67 
+  68 function TerrainHandler.getSeedForPlayer(userId: number, name: string?): number
+  69     if userId and userId > 0 then
+  70         return userId
+  71     end
+  72     -- Studio/test fallback: hash player name deterministically
+  73     local s = tostring(name or "Player")
+  74     local hash = 5381
+  75     for i = 1, #s do
+  76         hash = bit32.bxor(hash * 33, string.byte(s, i)) % 2147483647
+  77     end
+  78     if hash < 0 then hash = -hash end
+  79     return hash
+  80 end
+  81 
+  82 function TerrainHandler.ensurePlayerPlotForSeed(seed: number, parent: Instance): Model
+  83     local existing = parent:FindFirstChild("Plot")
+  84     if existing and existing:IsA("Model") then
+  85         return existing
+  86     end
+  87     print("[PLOT] Creating base plot for seed", seed)
+  88     local plot = Instance.new("Model")
+  89     plot.Name = "Plot"
+  90     plot.Parent = parent
+  91     local baseOffset = getPlotOffsetFromSeed(seed)
+  92     local ground = createGround(plot, baseOffset)
+  93     plot.PrimaryPart = ground
+  94     return plot
+  95 end
+  96 
+  97 -- Generate full set of objects (without saved diffs applied)
+  98 -- Returns a model containing children grouped under subfolders per type
+  99 function TerrainHandler.generateInitialTerrainForSeed(seed: number, plot: Model): Model
+ 100     -- Clear previous generated contents (keep Ground)
+ 101     for _, child in ipairs(plot:GetChildren()) do
+ 102         if child.Name ~= "Ground" then
+ 103             child:Destroy()
+ 104         end
+ 105     end
+ 106 
+ 107     print("[GEN] Generating terrain with seed", seed)
+ 108     local rng = Random.new(seed)
+ 109 
+ 110     local folder = Instance.new("Folder")
+ 111     folder.Name = "Generated"
+ 112     folder.Parent = plot
+ 113 
+ 114     local fTree = Instance.new("Folder"); fTree.Name = "Trees"; fTree.Parent = folder
+ 115     -- Somente árvores nesta fase
+ 116 
+ 117     local placedTrees = 0
+ 118 
+ 119     local baseOffset = getPlotOffsetFromSeed(seed)
+ 120     for x = 1, GRID_SIZE do
+ 121         for z = 1, GRID_SIZE do
+ 122             local ctype = pickType(rng, x, z)
+ 123             if ctype ~= "empty" then
+ 124                 local center = baseOffset + Vector3.new((x-0.5) * CELL_SIZE, PLOT_HEIGHT + 1.5, (z-0.5) * CELL_SIZE)
+ 125                 if ctype == "tree" then
+ 126                     local treeTemplate = cloneTreeModel()
+ 127                     if treeTemplate and treeTemplate:IsA("Model") then
+ 128                         local m = treeTemplate
+ 129                         m.Name = "Tree_"..cellKey(x,z)
+ 130                         m:PivotTo(CFrame.new(center))
+ 131                         m.Parent = fTree
+ 132                     else
+ 133                         local tree = createPlaceholder("Tree_"..cellKey(x,z), Color3.fromRGB(66, 118, 52), Vector3.new(2, 3, 2), center)
+ 134                         tree.Parent = fTree
+ 135                     end
+ 136                     placedTrees += 1
+ 137                 end
+ 138             end
+ 139         end
+ 140     end
+ 141 
+ 142     print(string.format("[GEN] Terrain generation complete. Trees placed: %d", placedTrees))
+ 143     return folder
+ 144 end
+ 145 
+ 146 -- Apply saved diffs (removed objects, expansions)
+ 147 function TerrainHandler.applySavedChanges(generatedFolder: Instance, data)
+ 148     -- Remove objects flagged as removed
+ 149     local removed = data and data.removed or {}
+ 150 
+ 151     local function tryRemoveChildren(parentFolder: Instance)
+ 152         for _, inst in ipairs(parentFolder:GetChildren()) do
+ 153             local n = inst.Name
+ 154             -- names are like Type_x,y
+ 155             local key = n:match("_(%d+,%d+)$")
+ 156             if key and removed[key] then
+ 157                 inst:Destroy()
+ 158             end
+ 159         end
+ 160     end
+ 161 
+ 162     for _, folder in ipairs(generatedFolder:GetChildren()) do
+ 163         if folder:IsA("Folder") then
+ 164             tryRemoveChildren(folder)
+ 165         end
+ 166     end
+ 167 
+ 168     -- Expansions are prepared; nothing to unlock visually yet
+ 169     print("[APPLY] Saved changes applied (removed:", next(removed) and "some" or "none", ")")
+ 170 end
+ 171 
+ 172 function TerrainHandler.getSpawnCFrameForSeed(seed: number): CFrame
+ 173     local baseOffset = getPlotOffsetFromSeed(seed)
+ 174     local center = baseOffset + Vector3.new((GRID_SIZE * CELL_SIZE)/2, PLOT_HEIGHT + 5, (GRID_SIZE * CELL_SIZE)/2)
+ 175     return CFrame.new(center)
+ 176 end
+ 177 
+ 178 function TerrainHandler.getPlotBounds()
+ 179     return GRID_SIZE, CELL_SIZE
+ 180 end
+ 181 
+ 182 -- Backwards-compatible wrappers (default seed = userId)
+ 183 function TerrainHandler.ensurePlayerPlot(userId: number, parent: Instance): Model
+ 184     return TerrainHandler.ensurePlayerPlotForSeed(userId, parent)
+ 185 end
+ 186 
+ 187 function TerrainHandler.generateInitialTerrain(userId: number, plot: Model): Model
+ 188     return TerrainHandler.generateInitialTerrainForSeed(userId, plot)
+ 189 end
+ 190 
+ 191 function TerrainHandler.getSpawnCFrame(userId: number): CFrame
+ 192     return TerrainHandler.getSpawnCFrameForSeed(userId)
+ 193 end
+ 194 
+ 195 return TerrainHandler
